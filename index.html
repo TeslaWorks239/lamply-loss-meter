@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Потери палки LAMPLY</title>
+<style>
+/* One column for a phone lying 3 m away: status strip, big window numbers, totals, actions. */
+:root {
+  --bg: #f3f5f2; --panel: #ffffff; --fg: #17201b; --muted: #5d6b63; --line: #d5ddd7;
+  --accent: #0b6e4f; --ok: #12854a; --bad: #c62828; --warn: #b26a00;
+  --f-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  --f-mono: ui-monospace, Menlo, Consolas, "Roboto Mono", monospace;
+  box-sizing: border-box;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1512; --panel: #18211c; --fg: #e6ede8; --muted: #93a39a; --line: #2a362f;
+  --accent: #4fc79a; --ok: #3ccf7f; --bad: #ff5a52; --warn: #f2a93b; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f1512; --panel: #18211c; --fg: #e6ede8; --muted: #93a39a; --line: #2a362f;
+  --accent: #4fc79a; --ok: #3ccf7f; --bad: #ff5a52; --warn: #f2a93b; color-scheme: dark }
+*, *::before, *::after { box-sizing: inherit; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px var(--f-body); }
+[hidden] { display: none !important; }
+.wrap { max-width: 640px; margin: 0 auto; padding: max(12px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px))
+  max(32px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); display: grid; gap: 12px; }
+h1 { font-size: 1.35rem; margin: 0; text-wrap: balance; }
+h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 4px 0 -4px; font-weight: 600; }
+.rec { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px;
+  background: var(--panel); border: 2px solid var(--line); font-weight: 600; }
+.rec .dot { width: 16px; height: 16px; border-radius: 50%; background: var(--muted); flex: none; }
+.rec.on { border-color: var(--ok); } .rec.on .dot { background: var(--ok); animation: pulse 1s infinite; }
+.rec.stale { border-color: var(--bad); color: var(--bad); } .rec.stale .dot { background: var(--bad); }
+@keyframes pulse { 50% { opacity: .35 } }
+@media (prefers-reduced-motion: reduce) { .rec.on .dot { animation: none } }
+.rec small { font-weight: 400; color: var(--muted); margin-left: auto; text-align: right; font-variant-numeric: tabular-nums; }
+.clock { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.clock .t { font-family: var(--f-mono); font-size: 2.2rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.clock .s { color: var(--muted); font-size: .9rem; text-align: right; }
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+.tile .k { font-size: .75rem; color: var(--muted); line-height: 1.2; min-height: 2.4em; }
+.tile .v { font-family: var(--f-mono); font-size: 2.1rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.tile .n { font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tile.sm .v { font-size: 1.35rem; }
+.ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+.btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+button { font: inherit; font-weight: 600; padding: 14px 10px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--fg); cursor: pointer; }
+button.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); grid-column: 1 / -1; font-size: 1.1rem; }
+button:disabled { opacity: .45; }
+button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.msg { font-size: .9rem; color: var(--muted); min-height: 1.2em; overflow-wrap: anywhere; }
+.msg.err { color: var(--bad); } .msg.good { color: var(--ok); }
+.events { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px;
+  font-family: var(--f-mono); font-size: .8rem; line-height: 1.5; max-height: 9.5em; overflow-y: auto; white-space: pre-line; }
+details { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+summary { font-weight: 600; cursor: pointer; }
+details ol { padding-left: 1.2em; margin: 8px 0 0; display: grid; gap: 6px; line-height: 1.4; }
+textarea { width: 100%; height: 120px; font-family: var(--f-mono); font-size: .7rem;
+  background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; }
+@media (max-width: 360px) { .tile .v { font-size: 1.7rem; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Потери пакетов правой палки</h1>
+
+  <div id="rec" class="rec"><div class="dot"></div><div id="recText">Не подключено</div><small id="recSub"></small></div>
+  <div id="msg" class="msg"></div>
+  <div class="btns">
+    <button id="bConnect" class="primary">Подключить</button>
+    <button id="bAll">Показать все устройства</button>
+    <button id="bDisconnect" disabled>Отключить</button>
+  </div>
+  <div id="diag" class="msg">Скрипт страницы ещё не запустился.</div>
+  <script>window.addEventListener("error", function (e) { var d = document.getElementById("diag"); if (d) { d.textContent = "Ошибка скрипта " + e.message + " (строка " + e.lineno + ")"; d.className = "msg err"; } });</script>
+
+  <div class="clock"><div class="t" id="vElapsed">00:00:00</div><div class="s" id="vClockSub">замер не начат</div></div>
+
+  <h2 id="hWin">Последние 10 с<span id="wNext"></span></h2>
+  <div class="tiles">
+    <div class="tile"><div class="k">радиопакетов</div><div class="v" id="wPk">-</div><div class="n">около 50</div></div>
+    <div class="tile"><div class="k">записей палки</div><div class="v" id="wOwn">-</div><div class="n">около 500</div></div>
+    <div class="tile"><div class="k">записей ботинка</div><div class="v" id="wBoot">-</div><div class="n">около 1000</div></div>
+    <div class="tile"><div class="k">пропуск палки</div><div class="v" id="wOwnMiss">-</div><div class="n" id="wOwnPct"></div></div>
+    <div class="tile"><div class="k">пропуск ботинка</div><div class="v" id="wBootMiss">-</div><div class="n" id="wBootPct"></div></div>
+    <div class="tile"><div class="k">плохих пакетов</div><div class="v" id="wBad">-</div></div>
+  </div>
+
+  <h2>С начала замера</h2>
+  <div class="tiles">
+    <div class="tile sm"><div class="k">пропуск палки</div><div class="v" id="tOwnMiss">0</div><div class="n" id="tOwnPct"></div></div>
+    <div class="tile sm"><div class="k">пропуск ботинка</div><div class="v" id="tBootMiss">0</div><div class="n" id="tBootPct"></div></div>
+    <div class="tile sm"><div class="k">обрывов связи</div><div class="v" id="tDrops">0</div><div class="n" id="tConns"></div></div>
+    <div class="tile sm"><div class="k">радиопакетов</div><div class="v" id="tPk">0</div><div class="n" id="tRate"></div></div>
+    <div class="tile sm"><div class="k">записей палки</div><div class="v" id="tOwn">0</div><div class="n" id="tOwnRate"></div></div>
+    <div class="tile sm"><div class="k">записей ботинка</div><div class="v" id="tBoot">0</div><div class="n" id="tBootRate"></div></div>
+    <div class="tile sm"><div class="k">плохих пакетов</div><div class="v" id="tBad">0</div></div>
+    <div class="tile sm"><div class="k">номер назад, палка</div><div class="v" id="tOwnBack">0</div></div>
+    <div class="tile sm"><div class="k">номер назад, ботинок</div><div class="v" id="tBootBack">0</div></div>
+  </div>
+
+  <div class="btns">
+    <button id="bCsv">Сохранить CSV</button>
+    <button id="bCopy">Копировать CSV</button>
+    <button id="bRestore">Восстановить</button>
+    <button id="bClear">Новый замер</button>
+  </div>
+  <textarea id="out" hidden readonly></textarea>
+
+  <h2>События</h2>
+  <div class="events" id="events">пока нет</div>
+
+  <details>
+    <summary>Как пользоваться</summary>
+    <ol>
+      <li>Открыть эту ссылку в Bluefy, не в Safari. На ПК палка должна быть отключена, у неё одно место для телефона или ПК.</li>
+      <li>Разбудить правую палку и нажать «Подключить», в списке выбрать LAMPLY-STICK-R.</li>
+      <li>Положить телефон экраном вверх и не гасить экран, Bluefy в фоне данные не принимает. Счёт идёт окнами по 10 с от первого подключения.</li>
+      <li>При обрыве страница сама переподключается и пишет событие, счёт продолжается.</li>
+      <li>В конце нажать «Сохранить CSV» и выбрать «Сохранить в Файлы» или отправить. Если не вышло, нажать «Копировать CSV» и вставить в Заметки.</li>
+    </ol>
+    <p class="msg">Пропуск считается по разрывам порядковых номеров записей, отдельно для палки и для ботинка, так же как в логгере ПК. Плашка «номер назад» считает записи с повтором или откатом номера. Если она быстро растёт, пропуск дальше не считается (так ведёт себя и логгер ПК), и замер стоит начать заново кнопкой «Новый замер».</p>
+  </details>
+</div>
+
+<script>
+(function () {
+"use strict";
+const $ = (id) => document.getElementById(id);
+const UUID = (x) => `a6c0${x}-864b-4aaa-8cab-2c026a60709f`;
+const SVC = UUID("b000");
+const STREAM_CH = UUID("b021");
+const NAME = "LAMPLY-STICK-R";
+const WIN_MS = 10000;
+const LS_KEY = "lamply-loss-meter-v1";
+
+// ---- Разбор 0xB021, зеркало lamply_stream.parse_packet ----
+class StreamError extends Error {}
+function parsePacket(b) {
+  const len = b.length;
+  if (len < 4) throw new StreamError(len + " bytes, the header alone is 4");
+  const ver = b[0], flags = b[1], nBoot = b[2], nOwn = b[3];
+  if (ver !== 1) throw new StreamError("version " + ver);
+  const nSpeed = flags & 0x03;
+  if (nSpeed > 2) throw new StreamError(nSpeed + " speed records");
+  const known = 4 + (nBoot ? 6 : 0) + 23 * (nBoot + nOwn) + 10 * nSpeed
+    + (flags & 0x04 ? 34 : 0) + (flags & 0x20 ? 8 : 0) + (flags & 0x40 ? 12 : 0);
+  if (flags & 0x80) {
+    if (len <= known) throw new StreamError(len + " bytes, header announces " + known + " and a block");
+    let at = known;
+    while (at < len) {
+      if (len - at < 2) throw new StreamError("extension record header cut short");
+      const rl = b[at + 1]; at += 2;
+      if (rl > len - at) throw new StreamError("extension record reaches past the end");
+      at += rl;
+    }
+  } else if (len !== known) throw new StreamError(len + " bytes, header announces " + known);
+  let at = 4 + (nBoot ? 6 : 0);
+  const boot = [], own = [];
+  for (let i = 0; i < nBoot; i++, at += 23) boot.push(b[at] | (b[at + 1] << 8));
+  for (let i = 0; i < nOwn; i++, at += 23) own.push(b[at] | (b[at + 1] << 8));
+  return { boot, own };
+}
+
+// ---- Счёт разрывов, зеркало freeze_log.Track (back считает отвергнутые номера) ----
+class Track {
+  constructor() { this.last = null; this.miss = 0; this.back = 0; }
+  add(seq) {
+    if (this.last !== null) {
+      const d = (seq - this.last) & 0xFFFF;
+      if (d === 0 || d > 0x8000) { this.back++; return; }
+      this.miss += d - 1;
+    }
+    this.last = seq;
+  }
+}
+
+function newCounter() {
+  return { own: new Track(), boot: new Track(), bad: 0,
+    win: { pk: 0, own: 0, boot: 0 }, tot: { pk: 0, own: 0, boot: 0 } };
+}
+function onNotify(c, bytes) {
+  let p;
+  try { p = parsePacket(bytes); } catch (e) { if (e instanceof StreamError) { c.bad++; return; } throw e; }
+  c.win.pk++; c.win.own += p.own.length; c.win.boot += p.boot.length;
+  c.tot.pk++; c.tot.own += p.own.length; c.tot.boot += p.boot.length;
+  for (const s of p.own) c.own.add(s);
+  for (const s of p.boot) c.boot.add(s);
+}
+
+// ---- Состояние замера ----
+let C = newCounter();
+let t0 = 0, nextTick = 0, tickTimer = null;
+let prev = { ownMiss: 0, bootMiss: 0, bad: 0 };
+let lastWin = null;
+let rows = [];          // строки CSV, объекты
+let evShown = [];
+let conns = 0, drops = 0;
+let device = null, wantConnected = false, backoff = 2000, reconnectTimer = null, lastNotifyT = 0;
+
+const CSV_HEAD = ["time", "t_unix_ms", "elapsed_s", "pk_10s", "own_10s", "boot_10s", "own_miss", "boot_miss", "bad",
+  "own_miss_10s", "boot_miss_10s", "bad_10s", "own_back", "boot_back", "conn", "conns", "event"];
+
+function hms(ms) { const s = Math.max(0, Math.floor(ms / 1000)); const p = (n) => String(n).padStart(2, "0");
+  return p(Math.floor(s / 3600)) + ":" + p(Math.floor(s / 60) % 60) + ":" + p(s % 60); }
+function clockNow() { return new Date().toLocaleTimeString("ru-RU", { hour12: false }); }
+function msg(text, cls) { $("msg").textContent = text; $("msg").className = "msg" + (cls ? " " + cls : ""); }
+function isConn() { return !!(device && device.gatt && device.gatt.connected); }
+
+function event(text) {
+  const now = Date.now();
+  const r = { time: clockNow(), t_unix_ms: now, elapsed_s: t0 ? Math.round((now - t0) / 1000) : "", event: text };
+  rows.push(r);
+  evShown.unshift(r.time + "  " + text);
+  if (evShown.length > 40) evShown.pop();
+  $("events").textContent = evShown.join("\n");
+}
+
+function startClock() {
+  t0 = Date.now(); nextTick = t0 + WIN_MS;
+  C.win = { pk: 0, own: 0, boot: 0 };
+  clearTimeout(tickTimer); tickTimer = setTimeout(tick, WIN_MS);
+}
+function tick() {
+  const now = Date.now();
+  const w = C.win;
+  const r = { time: clockNow(), t_unix_ms: now, elapsed_s: Math.round((now - t0) / 1000),
+    pk_10s: w.pk, own_10s: w.own, boot_10s: w.boot,
+    own_miss: C.own.miss, boot_miss: C.boot.miss, bad: C.bad,
+    own_miss_10s: C.own.miss - prev.ownMiss, boot_miss_10s: C.boot.miss - prev.bootMiss, bad_10s: C.bad - prev.bad,
+    own_back: C.own.back, boot_back: C.boot.back, conn: isConn() ? 1 : 0, conns, event: "" };
+  rows.push(r); lastWin = r;
+  prev = { ownMiss: C.own.miss, bootMiss: C.boot.miss, bad: C.bad };
+  C.win = { pk: 0, own: 0, boot: 0 };
+  // следующее окно от сетки t0, без накопления сдвига; пропущенные окна (страница спала) не догоняем
+  nextTick += WIN_MS; while (nextTick <= now) nextTick += WIN_MS;
+  tickTimer = setTimeout(tick, nextTick - now);
+  render();
+}
+
+// ---- Экран ----
+function pct(miss, got) { const all = miss + got; return all ? (100 * miss / all).toFixed(2) + " %" : ""; }
+function setV(id, val, cls) { const el = $(id); el.textContent = String(val); el.className = "v" + (cls ? " " + cls : ""); }
+function render() {
+  const now = Date.now();
+  if (t0) { $("vElapsed").textContent = hms(now - t0); $("vClockSub").textContent = "с " + new Date(t0).toLocaleTimeString("ru-RU", { hour12: false }) + ", окон " + rows.filter((r) => r.pk_10s !== undefined).length; }
+  if (lastWin) {
+    const w = lastWin;
+    setV("wPk", w.pk_10s, w.pk_10s ? "" : "bad");
+    setV("wOwn", w.own_10s, w.own_10s >= 450 ? "ok" : "warn");
+    setV("wBoot", w.boot_10s, w.boot_10s >= 900 ? "ok" : "warn");
+    setV("wOwnMiss", w.own_miss_10s, w.own_miss_10s ? "bad" : "ok"); $("wOwnPct").textContent = pct(w.own_miss_10s, w.own_10s);
+    setV("wBootMiss", w.boot_miss_10s, w.boot_miss_10s ? "bad" : "ok"); $("wBootPct").textContent = pct(w.boot_miss_10s, w.boot_10s);
+    setV("wBad", w.bad_10s, w.bad_10s ? "bad" : "ok");
+  }
+  $("wNext").textContent = t0 ? ", следующие через " + Math.max(0, Math.ceil((nextTick - now) / 1000)) + " с" : "";
+  setV("tOwnMiss", C.own.miss, C.own.miss ? "bad" : "ok"); $("tOwnPct").textContent = pct(C.own.miss, C.tot.own);
+  setV("tBootMiss", C.boot.miss, C.boot.miss ? "bad" : "ok"); $("tBootPct").textContent = pct(C.boot.miss, C.tot.boot);
+  setV("tDrops", drops, drops ? "bad" : ""); $("tConns").textContent = "подключений " + conns;
+  const sec = t0 ? (now - t0) / 1000 : 0;
+  setV("tPk", C.tot.pk); $("tRate").textContent = sec > 1 ? (C.tot.pk / sec).toFixed(1) + " в с" : "";
+  setV("tOwn", C.tot.own); $("tOwnRate").textContent = sec > 1 ? (C.tot.own / sec).toFixed(1) + " в с" : "";
+  setV("tBoot", C.tot.boot); $("tBootRate").textContent = sec > 1 ? (C.tot.boot / sec).toFixed(1) + " в с" : "";
+  setV("tBad", C.bad, C.bad ? "bad" : "");
+  setV("tOwnBack", C.own.back, C.own.back > 5 ? "warn" : "");
+  setV("tBootBack", C.boot.back, C.boot.back > 5 ? "warn" : "");
+
+  const rec = $("rec"), connected = isConn(), age = lastNotifyT ? (now - lastNotifyT) / 1000 : null;
+  if (connected && age !== null && age <= 2) { rec.className = "rec on"; $("recText").textContent = "Поток идёт"; }
+  else if (wantConnected) {
+    rec.className = "rec stale";
+    $("recText").textContent = connected ? (lastNotifyT ? "Нет пакетов больше 2 с" : "Подключено, ждём поток") : "Связь потеряна, переподключаюсь";
+  } else { rec.className = "rec"; $("recText").textContent = "Не подключено"; }
+  $("recSub").textContent = device ? (device.name || "") : "";
+}
+setInterval(render, 500);
+$("diag").textContent = "Скрипт страницы запущен.";
+
+// ---- Bluetooth ----
+function onValue(e) {
+  const dv = e.target.value;
+  lastNotifyT = Date.now();
+  onNotify(C, new Uint8Array(dv.buffer.slice(dv.byteOffset, dv.byteOffset + dv.byteLength)));
+}
+async function linkUp() {
+  msg("Подключаюсь к " + (device.name || "палке") + "…");
+  const server = await device.gatt.connect();
+  const svc = await server.getPrimaryService(SVC);
+  const ch = await svc.getCharacteristic(STREAM_CH);
+  ch.removeEventListener("characteristicvaluechanged", onValue);
+  ch.addEventListener("characteristicvaluechanged", onValue);
+  if (!t0) startClock();
+  await ch.startNotifications();
+  conns++;
+  event("connected #" + conns);
+  backoff = 2000;
+  msg("Подключено, поток 0xB021 подписан.", "good");
+  render();
+}
+async function connectLoop() {
+  clearTimeout(reconnectTimer);
+  if (!wantConnected || !device) return;
+  try { await linkUp(); }
+  catch (e) {
+    event("error " + errText(e));
+    msg("Не удалось подключиться (" + errText(e) + "). Повтор через " + Math.round(backoff / 1000) + " с.", "err");
+    try { device.gatt.disconnect(); } catch (_) {}
+    reconnectTimer = setTimeout(connectLoop, backoff); backoff = Math.min(backoff * 2, 10000);
+  }
+}
+function errText(e) {
+  if (e === undefined || e === null) return "пустая ошибка";
+  const parts = [];
+  if (e.name) parts.push(e.name); if (e.message) parts.push(e.message); if (e.code) parts.push("код " + e.code);
+  if (!parts.length) parts.push(String(e));
+  return parts.join(", ");
+}
+async function pickDevice(all) {
+  msg("Ищу палку. Должно появиться окно Bluefy со списком устройств.");
+  if (!navigator.bluetooth) { msg("В этом браузере нет Web Bluetooth. Откройте ссылку в Bluefy, а не в Safari.", "err"); return; }
+  const slow = setTimeout(() => msg("Окно выбора не появилось за 15 с. Проверьте, что Bluetooth включён и Bluefy разрешён доступ к Bluetooth, потом перезагрузите страницу.", "err"), 15000);
+  let picked;
+  try {
+    picked = await navigator.bluetooth.requestDevice(all
+      ? { acceptAllDevices: true, optionalServices: [SVC] }
+      : { filters: [{ name: NAME }, { services: [SVC] }], optionalServices: [SVC] });
+  } catch (e) {
+    clearTimeout(slow);
+    msg(e && e.name === "NotFoundError" ? "Палка не выбрана или не найдена (" + errText(e) + "). Разбудите её и нажмите ещё раз. Если палка подключена к ПК, её сначала надо отключить там." : "Ошибка Bluetooth (" + errText(e) + ").", "err");
+    return;
+  }
+  clearTimeout(slow);
+  if (device && device !== picked) { wantConnected = false; clearTimeout(reconnectTimer); try { device.gatt.disconnect(); } catch (e) {} }
+  device = picked;
+  if (device.name && device.name !== NAME) msg("Выбрано " + device.name + ", а замер рассчитан на " + NAME + ".", "err");
+  device.addEventListener("gattserverdisconnected", (e) => {
+    if (e.target !== device) return;
+    if (wantConnected) {
+      drops++; event("disconnected");
+      msg("Связь оборвалась, переподключаюсь. Счёт продолжается.", "err");
+      reconnectTimer = setTimeout(connectLoop, 1000);
+    } else event("disconnected by user");
+    render();
+  });
+  wantConnected = true; $("bDisconnect").disabled = false; $("bConnect").textContent = "Подключить другую палку";
+  requestWakeLock();
+  connectLoop();
+}
+$("bConnect").onclick = () => pickDevice(false).catch((e) => msg("Ошибка (" + errText(e) + ").", "err"));
+$("bAll").onclick = () => pickDevice(true).catch((e) => msg("Ошибка (" + errText(e) + ").", "err"));
+$("bDisconnect").onclick = () => {
+  wantConnected = false; clearTimeout(reconnectTimer);
+  try { device && device.gatt.disconnect(); } catch (e) {}
+  $("bDisconnect").disabled = true; msg("Отключено. Замер остаётся на странице, окна пишутся дальше с нулями."); autosave(); render();
+};
+window.addEventListener("pagehide", () => { autosave(); try { device && device.gatt.disconnect(); } catch (e) {} });
+
+let wakeLock = null;
+async function requestWakeLock() { try { wakeLock = await navigator.wakeLock.request("screen"); } catch (e) {} }
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && wantConnected) requestWakeLock();
+  if (t0) event(document.visibilityState === "visible" ? "page visible" : "page hidden");
+});
+
+async function checkBrowser() {
+  const parts = ["Web Bluetooth " + (navigator.bluetooth ? "есть" : "нет, откройте страницу в Bluefy")];
+  try { if (navigator.bluetooth && navigator.bluetooth.getAvailability) parts.push("адаптер " + ((await navigator.bluetooth.getAvailability()) ? "доступен" : "недоступен, включите Bluetooth")); } catch (e) {}
+  parts.push(isSecureContext ? "https да" : "https нет");
+  if (!/selftest/.test(location.search)) $("diag").textContent = "Проверка браузера. " + parts.join(", ") + ".";
+}
+checkBrowser(); setTimeout(checkBrowser, 1500);
+
+// ---- CSV ----
+function toCsv() {
+  const out = [CSV_HEAD.join(",")];
+  for (const r of rows) out.push(CSV_HEAD.map((k) => (r[k] === undefined || r[k] === null) ? "" : String(r[k]).replace(/[,\n\r]/g, " ")).join(","));
+  return out.join("\n") + "\n";
+}
+function stamp() { const d = new Date(); const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}`; }
+async function saveCsv() {
+  if (!rows.length) { msg("Замер пустой, сохранять нечего.", "err"); return; }
+  autosave();
+  const name = `lamply_loss_${stamp()}.csv`, text = toCsv();
+  try {
+    const file = new File([text], name, { type: "text/csv" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file] }); msg("Файл " + name + " передан.", "good"); return; }
+  } catch (e) { if (e.name === "AbortError") { msg("Отправка отменена."); return; } }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], { type: "text/csv" })); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  msg("Если файл не появился, нажмите «Копировать CSV».");
+}
+$("bCsv").onclick = () => saveCsv().catch((e) => msg("Сохранение не сработало (" + errText(e) + "). Нажмите «Копировать CSV».", "err"));
+$("bCopy").onclick = async () => {
+  const text = toCsv(); const ta = $("out"); ta.hidden = false; ta.value = text;
+  try { await navigator.clipboard.writeText(text); msg("CSV скопирован, строк " + rows.length + ". Вставьте в Заметки или письмо.", "good"); }
+  catch (e) { ta.focus(); ta.select(); msg("Скопировать автоматически не вышло. Текст выделен в поле ниже, скопируйте его вручную.", "err"); }
+};
+
+// ---- Память браузера ----
+function autosave() {
+  if (!rows.length) return;
+  try { localStorage.setItem(LS_KEY, JSON.stringify({ saved: Date.now(), rows })); }
+  catch (e) { msg("Память браузера недоступна. Сохраните CSV сейчас.", "err"); }
+}
+setInterval(autosave, 30000);
+$("bRestore").onclick = () => {
+  let s = null;
+  try { s = JSON.parse(localStorage.getItem(LS_KEY) || "null"); } catch (e) {}
+  if (!s || !s.rows || !s.rows.length) { msg("Сохранённого замера нет.", "err"); return; }
+  const seen = new Set(rows.map((r) => r.t_unix_ms + "|" + (r.event || "")));
+  rows = s.rows.filter((r) => !seen.has(r.t_unix_ms + "|" + (r.event || ""))).concat(rows).sort((a, b) => a.t_unix_ms - b.t_unix_ms);
+  msg("Строки прошлого замера от " + new Date(s.saved).toLocaleString("ru-RU") + " добавлены в CSV. Счётчики на экране они не меняют.", "good");
+};
+let clearArmed = 0;
+$("bClear").onclick = () => {
+  if (Date.now() - clearArmed > 4000) { clearArmed = Date.now(); $("bClear").textContent = "Точно стереть?";
+    msg("Нажмите ещё раз, чтобы начать новый замер. Текущий будет стёрт со страницы и из памяти браузера.");
+    setTimeout(() => { $("bClear").textContent = "Новый замер"; }, 4000); return; }
+  clearArmed = 0; $("bClear").textContent = "Новый замер";
+  rows = []; evShown = []; $("events").textContent = "пока нет"; try { localStorage.removeItem(LS_KEY); } catch (e) {}
+  C = newCounter(); prev = { ownMiss: 0, bootMiss: 0, bad: 0 }; lastWin = null; conns = isConn() ? 1 : 0; drops = 0;
+  for (const id of ["wPk", "wOwn", "wBoot", "wOwnMiss", "wBootMiss", "wBad"]) setV(id, "-");
+  for (const id of ["wOwnPct", "wBootPct"]) $(id).textContent = "";
+  if (isConn()) { startClock(); event("new run, connected"); } else { t0 = 0; clearTimeout(tickTimer); $("vElapsed").textContent = "00:00:00"; $("vClockSub").textContent = "замер не начат"; }
+  msg("Начат новый замер."); render();
+};
+try { const s = JSON.parse(localStorage.getItem(LS_KEY) || "null");
+  if (s && s.rows && s.rows.length) msg("Есть сохранённый замер от " + new Date(s.saved).toLocaleString("ru-RU") + ", строк " + s.rows.length + ". Его можно добавить в CSV кнопкой «Восстановить»."); } catch (e) {}
+
+// ---- Самопроверка разбора по векторам ПК, открыть страницу с ?selftest ----
+async function selftest() {
+  const d = $("diag");
+  d.textContent = "Самопроверка разбора идёт…";
+  const v = await (await fetch("selftest.json", { cache: "no-store" })).json();
+  const hex = (h) => { const b = new Uint8Array(h.length / 2); for (let i = 0; i < b.length; i++) b[i] = parseInt(h.substr(i * 2, 2), 16); return b; };
+  let okCases = 0; const fails = [];
+  v.cases.forEach((c, i) => {
+    let got;
+    try { const p = parsePacket(hex(c.hex)); got = { bad: false, own: p.own, boot: p.boot }; } catch (e) { if (!(e instanceof StreamError)) throw e; got = { bad: true }; }
+    const same = got.bad === c.bad && (c.bad || (JSON.stringify(got.own) === JSON.stringify(c.own) && JSON.stringify(got.boot) === JSON.stringify(c.boot)));
+    if (same) okCases++; else fails.push("пакет " + i);
+  });
+  const t = newCounter(); let okWin = 0;
+  v.windows.forEach((notes, i) => {
+    t.win = { pk: 0, own: 0, boot: 0 };
+    for (const h of notes) onNotify(t, hex(h));
+    const got = [t.win.pk, t.win.own, t.win.boot, t.own.miss, t.boot.miss, t.bad, t.own.back, t.boot.back];
+    if (JSON.stringify(got) === JSON.stringify(v.expect[i])) okWin++; else fails.push("окно " + i + " " + JSON.stringify(got) + " вместо " + JSON.stringify(v.expect[i]));
+  });
+  const all = okCases === v.cases.length && okWin === v.windows.length;
+  d.textContent = "Самопроверка " + (all ? "пройдена" : "НЕ пройдена") + ". Пакетов совпало " + okCases + " из " + v.cases.length +
+    ", окон " + okWin + " из " + v.windows.length + (fails.length ? ". Расхождения " + fails.join("; ") : "") + ".";
+  d.className = "msg " + (all ? "good" : "err");
+  d.dataset.selftest = all ? "pass" : "fail";
+}
+if (/selftest/.test(location.search)) selftest().catch((e) => { $("diag").textContent = "Самопроверка не запустилась (" + errText(e) + ")."; $("diag").className = "msg err"; });
+
+render();
+})();
+</script>
+</body>
+</html>
